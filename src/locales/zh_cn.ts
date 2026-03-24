@@ -115,8 +115,8 @@ export default {
     errorDeleteDraft: "删除草稿失败，请稍后重试。",
   },
   chat: {
-    fallbackBubble: "你好呀！我是 Sumi，很高兴见到你。",
-    welcome: "你好呀！我是 Sumi，很高兴见到你！有什么想聊的吗？",
+    fallbackBubble: "你好呀！我是 {name}，很高兴见到你。",
+    welcome: "你好呀！我是 {name}，很高兴见到你！有什么想聊的吗？",
     online: "在线",
     exit: "退出",
     tipAgent: "Agent",

@@ -115,8 +115,8 @@ export default {
     errorDeleteDraft: "Failed to delete draft. Please try again later.",
   },
   chat: {
-    fallbackBubble: "Hi! I'm Sumi. Nice to meet you.",
-    welcome: "Hi! I'm Sumi. Nice to meet you! What would you like to talk about?",
+    fallbackBubble: "Hi! I'm {name}. Nice to meet you.",
+    welcome: "Hi! I'm {name}. Nice to meet you! What would you like to talk about?",
     online: "Online",
     exit: "Exit",
     tipAgent: "Agent",

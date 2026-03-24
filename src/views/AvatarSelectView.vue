@@ -5,7 +5,7 @@ import { avatarsDelete, avatarsList, getApiBaseUrl, getAvatarById } from "../api
 import { translate } from "../locales";
 import { clearAuthCredentials } from "../api/user";
 import { useAppState } from "../stores/appState";
-import { DEFAULT_USER_EMAIL, PUBLIC_AVATAR_IDS } from "../stores/appState";
+import { DEFAULT_USER_EMAIL, PUBLIC_AVATAR_IDS, PUBLIC_AVATAR_NAMES } from "../stores/appState";
 import type { Avatar } from "../stores/appState";
 
 const router = useRouter();
@@ -81,7 +81,7 @@ const fetchPublicAvatars = async () => {
         const d = res.data as Record<string, any>;
         const avatar: Avatar = {
           id: avatarId,
-          name: d.nickname || d.name || "Avatar",
+          name: PUBLIC_AVATAR_NAMES[avatarId] || d.nickname || d.name || "Avatar",
           desc: translate("store.defaultAvatarDesc"),
           type: "public",
           image: d.avatarImg || d.image || d.lookImg || "/sumi.png",

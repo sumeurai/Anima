@@ -15,7 +15,7 @@ const isPublicMode = computed(() => route.query.mode === "public");
 
 const input = ref("");
 const mode = ref<"text" | "voice">("text");
-const bubbleText = ref(translate("chat.fallbackBubble"));
+const bubbleText = ref("");
 const bubbleVisible = ref(true);
 const isTyping = ref(false);
 const isRecording = ref(false);
@@ -404,9 +404,32 @@ const handleFallbackReady = () => {
   }
 };
 
-onMounted(() => {
+const resolveAgentDisplayName = async (): Promise<string> => {
+  const avatar = currentAvatar.value;
+  const boundAgentId = avatar?.agentId;
+  console.log("[AgentName] boundAgentId:", boundAgentId, "avatarName:", avatarName.value);
+  try {
+    const list = await fetchOpenClawAgents();
+    console.log("[AgentName] list:", JSON.stringify(list));
+    applyAgentList(list);
+    const match = list.find((a) => a.id === boundAgentId)
+      || list.find((a) => a.id === selectedAgentId.value)
+      || list.find((a) => a.isDefault)
+      || list[0];
+    console.log("[AgentName] match:", JSON.stringify(match));
+    const resolved = match?.identityName || match?.name || match?.id || "";
+    if (resolved) return resolved;
+  } catch (err) {
+    console.error("[AgentName] error:", err);
+  }
+  return avatarName.value || "Agent";
+};
+
+onMounted(async () => {
+  const name = await resolveAgentDisplayName();
+  bubbleText.value = translate("chat.fallbackBubble", { name });
   if (state.chatMessages.length === 0) {
-    pushAgentMessage(translate("chat.welcome"));
+    pushAgentMessage(translate("chat.welcome", { name }));
   }
   loadAndRenderAvatar();
 });
@@ -638,7 +661,9 @@ const playTtsWithLipSync = async (text: string) => {
     console.log(`[LipSync] check: audioBase64=${!!audioBase64} renderer=${!!avatarRenderer.value} modelId=${atfModelId || "(empty)"}`);
 
     if (audioBase64 && avatarRenderer.value && atfModelId) {
-      const traceId = crypto.randomUUID();
+      const traceId = typeof crypto?.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
       console.log(`[ATF] POST ${apiBase}/web-api/portrait/atf/dt modelId=${atfModelId}`);
       try {
         const atfRes = await atfDt({
