@@ -172,7 +172,8 @@ const createWindow = () => {
   }
 
   mainWindow.webContents.on('before-input-event', (_event, input) => {
-    if (input.key === 'F12' && input.type === 'keyDown') {
+    if (input.type !== 'keyDown') return;
+    if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
       mainWindow?.webContents.toggleDevTools();
     }
   });
