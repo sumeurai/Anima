@@ -398,6 +398,39 @@ const finishAvatarLoading = () => {
   }, remain);
 };
 
+let _typewriterTimer: number | null = null;
+let _typewriterFullText = "";
+
+const stopTypewriter = (applyFull = false) => {
+  if (_typewriterTimer !== null) {
+    window.clearInterval(_typewriterTimer);
+    _typewriterTimer = null;
+  }
+  if (applyFull && _typewriterFullText) {
+    bubbleText.value = _typewriterFullText;
+  }
+  _typewriterFullText = "";
+};
+
+const startTypewriter = (text: string, durationMs: number) => {
+  stopTypewriter();
+  if (!text) { bubbleText.value = ""; return; }
+
+  const chars = Array.from(text);
+  const total = chars.length;
+  const interval = Math.max(Math.floor(durationMs / total), 30);
+  let idx = 0;
+
+  _typewriterFullText = text;
+  bubbleText.value = "";
+
+  _typewriterTimer = window.setInterval(() => {
+    idx++;
+    bubbleText.value = chars.slice(0, idx).join("");
+    if (idx >= total) stopTypewriter();
+  }, interval);
+};
+
 const handleFallbackReady = () => {
   fallbackImageLoaded.value = true;
   if (!useCanvasRenderer.value) {
@@ -439,6 +472,8 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearAvatarLoadTimeout();
   clearAvatarFinishTimer();
+  stopTypewriter();
+  stopAcknowledgment();
   stopRecordingOnly();
   chatAbortController.value?.abort();
   avatarRenderer.value?.stopPlay();
@@ -626,9 +661,97 @@ const stopRecordingOnly = () => {
 };
 
 const stopPlaying = () => {
+  stopTypewriter(true);
+  stopAcknowledgment();
   isBroadcast.value = false;
   isTyping.value = false;
   avatarRenderer.value?.stopPlay();
+};
+
+const ACK_PHRASES = [
+  "好的，收到",
+  "好的，让我想想",
+  "嗯，稍等一下",
+  "好的，马上",
+  "收到，我看看",
+];
+
+let _ackAborted = false;
+let _ackStopTimer: number | null = null;
+
+const playAcknowledgment = () => {
+  _ackAborted = false;
+  const phrase = ACK_PHRASES[Math.floor(Math.random() * ACK_PHRASES.length)];
+  console.log(`[Ack] phrase="${phrase}"`);
+
+  const avatar = currentAvatar.value;
+  if (!avatar || !avatarRenderer.value || !avatar.modelId) {
+    console.log(`[Ack] skip: avatar=${!!avatar} renderer=${!!avatarRenderer.value} modelId=${avatar?.modelId || "(empty)"}`);
+    return;
+  }
+
+  (async () => {
+    try {
+      const voiceId = resolvedTtsVoiceId.value;
+      console.log(`[Ack] TTS phrase="${phrase}" voiceId=${voiceId}`);
+      const ttsRes = await ttsTransform({ content: phrase, voiceId });
+      if (_ackAborted) { console.log("[Ack] aborted after TTS"); return; }
+
+      const audioBase64 = ttsRes?.data?.audioBase64 || "";
+      const atfModelId = avatar.modelId || "";
+      if (!audioBase64 || !avatarRenderer.value || !atfModelId) {
+        console.log("[Ack] skip lip-sync: no audio or no renderer");
+        return;
+      }
+
+      const traceId = typeof crypto?.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+      const atfRes = await atfDt({
+        status: "start",
+        dialogueBase64: audioBase64,
+        lastDialogueBase64: "",
+        modelId: atfModelId,
+        traceId,
+      });
+      if (_ackAborted) { console.log("[Ack] aborted after ATF"); return; }
+
+      if (atfRes?.data && avatarRenderer.value) {
+        const audioLen = ttsRes?.data?.audioLen ?? 2;
+        isBroadcast.value = true;
+        avatarRenderer.value.startPlay();
+
+        avatarRenderer.value.receiveData(atfRes.data, false, () => {
+          if (_ackAborted) return;
+          console.log(`[Ack] onAnimationReady -> typewriter ${phrase.length} chars over ${audioLen}s`);
+          isTyping.value = false;
+          startTypewriter(phrase, audioLen * 1000);
+        });
+
+        _ackStopTimer = window.setTimeout(() => {
+          _ackStopTimer = null;
+          if (!_ackAborted) {
+            stopTypewriter(true);
+            isBroadcast.value = false;
+            avatarRenderer.value?.stopPlay();
+            isTyping.value = true;
+            bubbleText.value = "";
+          }
+        }, audioLen * 1000 + 300);
+      }
+    } catch (e) {
+      console.log("[Ack] error:", e);
+    }
+  })();
+};
+
+const stopAcknowledgment = () => {
+  _ackAborted = true;
+  if (_ackStopTimer !== null) {
+    window.clearTimeout(_ackStopTimer);
+    _ackStopTimer = null;
+  }
 };
 
 const useOpenClaw = computed(() => true);
@@ -651,6 +774,8 @@ const sendViaOpenClaw = async (content: string) => {
   bubbleText.value = "";
   latestAgentText.value = "";
 
+  playAcknowledgment();
+
   chatAbortController.value?.abort();
   const controller = new AbortController();
   chatAbortController.value = controller;
@@ -666,6 +791,7 @@ const sendViaOpenClaw = async (content: string) => {
         latestAgentText.value = text;
       },
       onDone: async (text: string) => {
+        stopAcknowledgment();
         console.log(`[Chat] onDone len=${text.length} text=${text.substring(0, 100)}`);
         chatHistory.value.push({ role: "assistant", content: text });
         pushAgentMessage(text);
@@ -694,6 +820,7 @@ const sendViaOpenClaw = async (content: string) => {
 };
 
 const playTtsWithLipSync = async (text: string) => {
+  stopAcknowledgment();
   const avatar = currentAvatar.value;
   if (!avatar || !text.trim()) {
     console.log("[LipSync] EXIT: no avatar or empty text");
@@ -732,17 +859,18 @@ const playTtsWithLipSync = async (text: string) => {
         if (atfRes?.data) {
           isBroadcast.value = true;
           avatarRenderer.value.startPlay();
-          console.log("[LipSync] waiting for onAnimationReady...");
+          const audioLen = ttsRes?.data?.audioLen ?? 3;
+          console.log(`[LipSync] waiting for onAnimationReady... audioLen=${audioLen}`);
           await new Promise<void>((resolve) => {
             avatarRenderer.value!.receiveData(atfRes.data!, false, () => {
-              console.log("[LipSync] onAnimationReady fired -> showing text NOW");
+              console.log(`[LipSync] onAnimationReady -> typewriter ${text.length} chars over ${audioLen}s`);
               isTyping.value = false;
-              bubbleText.value = text;
+              startTypewriter(text, audioLen * 1000);
               resolve();
             });
           });
-          const audioLen = ttsRes?.data?.audioLen ?? 3;
           setTimeout(() => {
+            stopTypewriter(true);
             isBroadcast.value = false;
             avatarRenderer.value?.stopPlay();
           }, audioLen * 1000 + 500);
@@ -755,18 +883,22 @@ const playTtsWithLipSync = async (text: string) => {
 
     console.log("[LipSync] fallback: ATF not available, showing text with audio only");
     isTyping.value = false;
-    bubbleText.value = text;
     if (src) {
+      const audioLen = ttsRes?.data?.audioLen ?? 3;
       if (avatarRenderer.value) {
         isBroadcast.value = true;
         avatarRenderer.value.startPlay();
       }
+      startTypewriter(text, audioLen * 1000);
       const audio = new Audio(src);
       audio.addEventListener("ended", () => {
+        stopTypewriter(true);
         isBroadcast.value = false;
         avatarRenderer.value?.stopPlay();
       });
       await audio.play();
+    } else {
+      bubbleText.value = text;
     }
   } catch {
     console.log("[LipSync] CATCH: error, showing text");

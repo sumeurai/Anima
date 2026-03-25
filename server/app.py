@@ -82,6 +82,15 @@ VERSION = datetime.now().strftime("%Y%m%d_%H%M%S")
 app = Flask(__name__, static_folder=None)
 
 
+def _safe_log(msg: str) -> None:
+    """Print to console without crashing on non-encodable characters (e.g. emoji on GBK terminals)."""
+    try:
+        sys.stdout.buffer.write((msg + "\n").encode("utf-8", errors="replace"))
+        sys.stdout.buffer.flush()
+    except Exception:
+        pass
+
+
 def _build_config_script() -> str:
     """Generate a <script> tag that sets window.BaseConfig before the Vue app loads."""
     config = {
@@ -444,27 +453,30 @@ def openclaw_chat():
         def generate():
             line_count = 0
             total_content = ""
-            for raw_line in upstream.iter_lines():
-                if not raw_line:
-                    yield "\n"
-                    continue
-                decoded = raw_line.decode("utf-8", errors="replace")
-                line_count += 1
-                if decoded.startswith("data:"):
-                    payload = decoded[5:].strip()
-                    if payload and payload != "[DONE]":
-                        try:
-                            parsed = json.loads(payload)
-                            delta = parsed.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                            if delta:
-                                total_content += delta
-                        except (json.JSONDecodeError, IndexError, KeyError):
-                            pass
-                yield decoded + "\n"
-            yield "\n"
-            print(f"[OpenClaw] stream finished: {line_count} lines, content_len={len(total_content)}", flush=True)
+            try:
+                for raw_line in upstream.iter_lines():
+                    if not raw_line:
+                        yield "\n"
+                        continue
+                    decoded = raw_line.decode("utf-8", errors="replace")
+                    line_count += 1
+                    if decoded.startswith("data:"):
+                        payload = decoded[5:].strip()
+                        if payload and payload != "[DONE]":
+                            try:
+                                parsed = json.loads(payload)
+                                delta = parsed.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                if delta:
+                                    total_content += delta
+                            except (json.JSONDecodeError, IndexError, KeyError):
+                                pass
+                    yield decoded + "\n"
+                yield "\n"
+            except Exception as exc:
+                _safe_log(f"[OpenClaw] stream error: {exc}")
+            _safe_log(f"[OpenClaw] stream finished: {line_count} lines, content_len={len(total_content)}")
             if total_content:
-                print(f"[OpenClaw] full_reply: {total_content[:200]}{'...' if len(total_content) > 200 else ''}", flush=True)
+                _safe_log(f"[OpenClaw] full_reply: {total_content[:200]}{'...' if len(total_content) > 200 else ''}")
         resp = Response(generate(), mimetype="text/event-stream")
         resp.headers["Cache-Control"] = "no-cache"
         resp.headers["X-Accel-Buffering"] = "no"
