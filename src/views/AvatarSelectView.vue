@@ -7,10 +7,11 @@ import { clearAuthCredentials } from "../api/user";
 import { useAppState } from "../stores/appState";
 import { DEFAULT_USER_EMAIL, PUBLIC_AVATAR_IDS, PUBLIC_AVATAR_NAMES } from "../stores/appState";
 import type { Avatar } from "../stores/appState";
+import { nextTick } from "vue";
 
 const router = useRouter();
 const route = useRoute();
-const { state, selectAvatar, syncAvatarsFromServer } =
+const { state, selectAvatar, syncAvatarsFromServer, renameAvatar } =
   useAppState();
 const activeTab = ref<"all" | "official" | "custom">("all");
 const sseConnections = new Map<string, EventSource>();
@@ -121,6 +122,38 @@ const fetchAvatarsList = async () => {
   } finally {
     listLoading.value = false;
   }
+};
+
+const editingAvatarId = ref("");
+const editingName = ref("");
+const editNameInputRef = ref<HTMLInputElement | null>(null);
+
+const startRename = (avatar: Avatar, event: Event) => {
+  event.stopPropagation();
+  editingAvatarId.value = avatar.id;
+  editingName.value = avatar.name;
+  nextTick(() => {
+    editNameInputRef.value?.focus();
+    editNameInputRef.value?.select();
+  });
+};
+
+const confirmRename = () => {
+  if (editingAvatarId.value && editingName.value.trim()) {
+    renameAvatar(editingAvatarId.value, editingName.value.trim());
+  }
+  editingAvatarId.value = "";
+  editingName.value = "";
+};
+
+const cancelRename = () => {
+  editingAvatarId.value = "";
+  editingName.value = "";
+};
+
+const onRenameKeydown = (e: KeyboardEvent) => {
+  if (e.key === "Enter") confirmRename();
+  if (e.key === "Escape") cancelRename();
 };
 
 const openDeleteDialog = (avatar: { id: string; name: string; type: string; generating?: boolean }) => {
@@ -358,7 +391,20 @@ onMounted(() => {
             </div>
           </div>
           <div class="char-info">
-            <div class="char-name">{{ avatar.name }}</div>
+            <div class="char-name" v-if="editingAvatarId !== avatar.id" @dblclick="startRename(avatar, $event)">
+              {{ avatar.name }}
+              <span class="char-name-edit" @click="startRename(avatar, $event)" title="重命名">✎</span>
+            </div>
+            <div class="char-name char-name-editing" v-else @click.stop>
+              <input
+                ref="editNameInputRef"
+                v-model="editingName"
+                class="char-name-input"
+                maxlength="20"
+                @keydown="onRenameKeydown"
+                @blur="confirmRename"
+              />
+            </div>
             <div class="char-desc">
               {{ avatar.generating ? translate("select.estimate") : avatar.desc }}
             </div>

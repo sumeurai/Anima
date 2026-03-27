@@ -48,6 +48,30 @@ const PUBLIC_AVATAR_NAMES: Record<string, string> = {
   "1453606505259008": "Tomo",
   "1453607839064064": "Sumi",
 };
+const AVATAR_NAMES_KEY = "avatarCustomNames";
+
+const readCustomNames = (): Record<string, string> => {
+  try {
+    return JSON.parse(localStorage.getItem(AVATAR_NAMES_KEY) || "{}");
+  } catch {
+    return {};
+  }
+};
+
+const saveCustomName = (avatarId: string, name: string) => {
+  const map = readCustomNames();
+  if (name) {
+    map[avatarId] = name;
+  } else {
+    delete map[avatarId];
+  }
+  localStorage.setItem(AVATAR_NAMES_KEY, JSON.stringify(map));
+};
+
+const getDisplayName = (avatarId: string, fallback: string): string => {
+  return readCustomNames()[avatarId] || PUBLIC_AVATAR_NAMES[avatarId] || fallback;
+};
+
 const AGENT_MAP_KEY = "avatarAgentMap";
 
 const readAgentMap = (): Record<string, string> => {
@@ -208,7 +232,7 @@ const useAppState = () => {
         const voiceFromTts = item.tts?.find((voice) => voice?.ttsId)?.ttsId;
         return {
           id,
-          name: item.nickname || translate("store.defaultAvatarName"),
+          name: getDisplayName(id, item.nickname || translate("store.defaultAvatarName")),
           desc: isGenerating
             ? translate("store.generatingServerDesc")
             : isFailedByStatus
@@ -276,6 +300,15 @@ const useAppState = () => {
     });
   };
 
+  const renameAvatar = (avatarId: string, newName: string) => {
+    const trimmed = newName.trim();
+    saveCustomName(avatarId, trimmed);
+    const avatar = state.avatars.find((a) => a.id === avatarId);
+    if (avatar) {
+      avatar.name = trimmed || PUBLIC_AVATAR_NAMES[avatarId] || avatar.name;
+    }
+  };
+
   return {
     state,
     selectedAvatar,
@@ -287,6 +320,7 @@ const useAppState = () => {
     failAvatarGeneration,
     pushUserMessage,
     pushAgentMessage,
+    renameAvatar,
   };
 };
 
